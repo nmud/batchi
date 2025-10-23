@@ -6,11 +6,13 @@ import { section, kv } from "../utils/print";
 export function registerInspect(program: Command, makeAwsCtx: (region?: string) => any) {
   program
     .command("inspect")
+    .usage("<jobId> [options]")
     .argument("<jobId>", "AWS Batch Job ID")
     .option("-r, --region <region>", "AWS region")
     .option("--log-group <name>", "CloudWatch Logs group name", "/aws/batch/job")
     .option("--log-lines <n>", "Number of last log lines to include", "50")
     .description("Show job summary: status, links, image, env, host, last logs")
+    .showHelpAfterError()
     .action(async (jobId, opts) => {
       const ctx = makeAwsCtx(opts.region);
       try {
