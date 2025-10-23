@@ -1,0 +1,59 @@
+{
+    "name": "batchi",
+    "version": "0.1.0",
+    "description": "Batch Inspector: single-command AWS Batch job debugging CLI",
+    "bin": {
+        "batchi": "dist/cli.js"
+    },
+    "type": "commonjs",
+    "main": "dist/cli.js",
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "dev": "ts-node src/cli.ts",
+        "clean": "rimraf dist",
+        "prepublishOnly": "npm run build"
+    },
+    "keywords": [
+        "aws",
+        "batch",
+        "ecs",
+        "ec2",
+        "cloudwatch",
+        "cli",
+        "debugging"
+    ],
+    "author": "Raymond House",
+    "license": "Apache-2.0",
+    "engines": {
+        "node": ">=18.18"
+    },
+    "dependencies": {
+        "@aws-sdk/client-batch": "^3.914.0",
+        "@aws-sdk/client-cloudwatch-logs": "^3.914.0",
+        "@aws-sdk/client-ec2": "^3.915.0",
+        "@aws-sdk/client-ecs": "^3.914.0",
+        "@aws-sdk/client-s3": "^3.914.0",
+        "@aws-sdk/credential-providers": "^3.915.0",
+        "@aws-sdk/s3-request-presigner": "^3.914.0",
+        "commander": "^12.1.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.19.23",
+        "rimraf": "^6.0.1",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.9.3"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/nmud/batchi.git"
+    },
+    "bugs": {
+        "url": "https://github.com/nmud/batchi/issues"
+    },
+    "homepage": "https://github.com/nmud/batchi#readme"
+}

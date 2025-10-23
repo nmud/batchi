@@ -1,0 +1,5 @@
+notes.md
+.env.local
+node_modules/
+package-lock.json
+dist/
