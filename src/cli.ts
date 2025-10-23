@@ -13,7 +13,10 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { registerInspect } from "./commands/inspect";
 
 const program = new Command();
-program.name("batchi").description("Batch Inspector CLI").version("0.1.0");
+program
+  .name("batchi")
+  .description("Batch Inspector CLI")
+  .version("0.1.0", "-v, -V, --version");
 
 export type AwsCtx = {
   region: string;
