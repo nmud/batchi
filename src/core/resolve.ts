@@ -37,6 +37,28 @@ import {
   };
   
   const last = <T>(arr?: T[]) => (arr && arr.length ? arr[arr.length - 1] : undefined);
+  const clusterFromTaskArn = (arn?: string): string | undefined => {
+    if (!arn) return undefined;
+    // arn:aws:ecs:region:account:task/cluster-name/task-id
+    const taskIdx = arn.indexOf(":task/");
+    if (taskIdx === -1) return undefined;
+    const after = arn.slice(taskIdx + 6);
+    const firstSlash = after.indexOf("/");
+    if (firstSlash === -1) return undefined;
+    const clusterName = after.slice(0, firstSlash);
+    return clusterName || undefined;
+  };
+  const clusterArnFromTaskArn = (arn?: string): string | undefined => {
+    // Build cluster ARN from task ARN parts if possible
+    if (!arn) return undefined;
+    const parts = arn.split(":");
+    if (parts.length < 6) return undefined;
+    const region = parts[3];
+    const account = parts[4];
+    const name = clusterFromTaskArn(arn);
+    if (!region || !account || !name) return undefined;
+    return `arn:aws:ecs:${region}:${account}:cluster/${name}`;
+  };
   
   export async function resolveJobChain(
     d: ResolveDeps,
@@ -73,11 +95,18 @@ import {
     let ecsTask: any | undefined;
     let containerInstanceArn: string | undefined;
     if (taskArn) {
-      const t = await d.ecs.send(
-        new DescribeTasksCommand({ tasks: [taskArn] })
-      );
+      const hintCluster = clusterFromTaskArn(taskArn);
+      let t;
+      try {
+        t = await d.ecs.send(
+          new DescribeTasksCommand({ cluster: hintCluster, tasks: [taskArn] })
+        );
+      } catch (e: any) {
+        // Retry without cluster if the hint was wrong or empty
+        t = await d.ecs.send(new DescribeTasksCommand({ tasks: [taskArn] }));
+      }
       ecsTask = t.tasks?.[0];
-      ecsClusterArn = ecsTask?.clusterArn ?? ecsClusterArn;
+      ecsClusterArn = ecsTask?.clusterArn ?? clusterArnFromTaskArn(taskArn) ?? ecsClusterArn;
       containerInstanceArn = ecsTask?.containerInstanceArn;
     }
   

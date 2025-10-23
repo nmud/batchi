@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { resolveJobChain } from "../core/resolve";
 import { awsConsoleUrl } from "../utils/urls";
-import { section, kv } from "../utils/print";
+import { section, kv, colors } from "../utils/print";
 
 export function registerInspect(program: Command, makeAwsCtx: (region?: string) => any) {
   program
@@ -27,14 +27,29 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
         const reason = info.container?.reason || info.job.statusReason;
         const attempts = info.job.attempts?.length ?? 0;
 
-        console.log(
-          `Job: ${info.job.jobName} (${info.job.jobId}) [${status}]${exitCode != null ? ` Exit ${exitCode}` : ""}`
-        );
-        if (reason) kv("Reason", reason);
-        kv("Queue", info.job.jobQueue);
-        kv("ComputeEnv", info.job.computeEnvironment);
-        kv("Image", info.image);
-        if (info.command?.length) kv("Cmd", info.command.join(" "));
+        const failed = status === "FAILED" || (exitCode != null && exitCode !== 0);
+        const jobLabel = colors.bold(colors.yellow("Job"));
+        const statusWord = failed ? "Failed" : status === "SUCCEEDED" ? "Success" : status;
+        const statusStyled = failed
+          ? colors.red(colors.bold(`[${statusWord}]`))
+          : status === "SUCCEEDED"
+          ? colors.green(colors.bold(`[${statusWord}]`))
+          : colors.yellow(colors.bold(`[${statusWord}]`));
+        
+        console.log(colors.gray("───────────────────────────────────────────────────────────────────────"));
+        section(colors.yellow(colors.bold("Job Details")));
+        kv("Id", `${info.job.jobName} (${info.job.jobId})`, (s) => colors.brightCyan(s));
+        if (exitCode != null) kv("Exit Code", exitCode, colors.brightCyan);
+        // Flat line below Job line
+        kv("Status", statusStyled, colors.brightCyan);
+        if (reason) kv("Reason", failed ? colors.red(reason) : colors.yellow(reason), colors.red);
+        kv("Queue", info.job.jobQueue, colors.brightCyan);
+        kv("ComputeEnv", info.job.computeEnvironment, colors.brightCyan);
+        kv("Image", info.image, colors.brightCyan);
+        if (info.command?.length) kv("Cmd", info.command.join(" "), colors.brightCyan);
+        // Empty Line below Job Details
+        console.log(colors.gray(""));
+        console.log(colors.gray("───────────────────────────────────────────────────────────────────────"));
 
         if (info.ecsTask) {
           section("ECS Task");
@@ -43,6 +58,7 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
             info.ecsClusterArn ?? ""
           )}/tasks/${encodeURIComponent(info.ecsTask.taskArn)}`;
           kv("Console", awsConsoleUrl("ecs", ctx.region, ecsPath));
+          console.log(colors.gray(""));
         }
 
         if (info.ec2Instance) {
@@ -61,21 +77,25 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
           kv("SGs", sgs);
           const ec2Path = `ec2/v2/home#InstanceDetails:instanceId=${iid}`;
           kv("Console", awsConsoleUrl("ec2", ctx.region, ec2Path));
+          console.log(colors.gray(""));
         }
 
         if (info.logStreamName) {
-          section("Logs");
-          kv("Group", opts.logGroup);
-          kv("Stream", info.logStreamName);
+          section(colors.yellow(colors.bold("Logs")));
+          kv("Group", opts.logGroup, colors.brightCyan);
+          kv("Stream", info.logStreamName, colors.brightCyan);
           const logsPath = `cloudwatch/home#logsV2:log-groups/log-group/${encodeURIComponent(
             opts.logGroup
           )}/log-events/${encodeURIComponent(info.logStreamName)}`;
-          kv("Console", awsConsoleUrl("logs", ctx.region, logsPath));
+          kv("Console", awsConsoleUrl("logs", ctx.region, logsPath), colors.brightCyan);
+          // Empty Line below Logs
+          console.log(colors.gray(""));
 
           const lines = info.lastLogLines ?? [];
           if (lines.length) {
-            section(`Last ${lines.length} line(s)`);
-            for (const line of lines) console.log(`  ${line}`);
+            console.log(colors.gray(`─── Logs (last ${lines.length}) BEGIN ─────────────────────────────────`));
+            for (const line of lines) console.log(colors.dim(`  ${line}`));
+            console.log(colors.gray(`─── Logs END ───────────────────────────────────────────────────────`));
           }
         }
 
