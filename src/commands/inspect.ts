@@ -40,24 +40,38 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
         section(colors.yellow(colors.bold("Job Details")));
         kv("Id", `${info.job.jobName} (${info.job.jobId})`, (s) => colors.brightCyan(s));
         if (exitCode != null) kv("Exit Code", exitCode, colors.brightCyan);
-        // Flat line below Job line
         kv("Status", statusStyled, colors.brightCyan);
+
+        const isFargate = info.ecsTask?.launchType === "FARGATE" || info.job.platformCapabilities?.includes?.("FARGATE");
+        const isEks = !!(info.job.eksAttempts?.length || info.job.eksProperties || info.job.platformCapabilities?.includes?.("EKS"));
+        if (isEks) console.log(colors.yellow("This job appears to be Batch on EKS (no ECS/EC2)."));
+        if (isFargate) console.log(colors.yellow("This job ran on Fargate (no EC2 host)."));
+
+        if (!info.ecsTask) {
+          console.log(colors.gray("No ECS task object resolved; showing available identifiers."));
+        } else if (!info.ec2Instance && !isFargate) {
+          console.log(colors.gray("ECS task resolved, but EC2 instance not found (could be ENI not attached or perms)."));
+        }
+
         if (reason) kv("Reason", failed ? colors.red(reason) : colors.yellow(reason), colors.red);
         kv("Queue", info.job.jobQueue, colors.brightCyan);
         kv("ComputeEnv", info.job.computeEnvironment, colors.brightCyan);
         kv("Image", info.image, colors.brightCyan);
         if (info.command?.length) kv("Cmd", info.command.join(" "), colors.brightCyan);
-        // Empty Line below Job Details
         console.log(colors.gray(""));
         console.log(colors.gray("───────────────────────────────────────────────────────────────────────"));
 
-        if (info.ecsTask) {
+        if (info.ecsTask || info.taskArn || info.containerInstanceArn) {
           section("ECS Task");
-          kv("ARN", info.ecsTask.taskArn);
-          const ecsPath = `ecs/home#/clusters/${encodeURIComponent(
-            info.ecsClusterArn ?? ""
-          )}/tasks/${encodeURIComponent(info.ecsTask.taskArn)}`;
-          kv("Console", awsConsoleUrl("ecs", ctx.region, ecsPath));
+          if (info.ecsTask?.taskArn || info.taskArn) kv("ARN", info.ecsTask?.taskArn || info.taskArn, colors.brightCyan);
+          if (info.ecsClusterArn) kv("Cluster", info.ecsClusterArn, colors.brightCyan);
+          if (info.containerInstanceArn) kv("ContainerInstance", info.containerInstanceArn, colors.brightCyan);
+          if (info.ecsClusterArn && (info.ecsTask?.taskArn || info.taskArn)) {
+            const ecsPath = `ecs/home#/clusters/${encodeURIComponent(
+              info.ecsClusterArn
+            )}/tasks/${encodeURIComponent(info.ecsTask?.taskArn || info.taskArn || "")}`;
+            kv("Console", awsConsoleUrl("ecs", ctx.region, ecsPath), colors.brightCyan);
+          }
           console.log(colors.gray(""));
         }
 
@@ -70,13 +84,19 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
           const sgs = (info.ec2Instance.SecurityGroups || [])
             .map((g: any) => `${g.GroupName}(${g.GroupId})`)
             .join(", ");
-          kv("Instance", iid);
-          kv("Private IP", pri);
-          kv("Public IP", pub);
-          kv("Subnet", subnet);
-          kv("SGs", sgs);
+          kv("Instance", iid, colors.brightCyan);
+          kv("Private IP", pri, colors.brightCyan);
+          kv("Public IP", pub, colors.brightCyan);
+          kv("Subnet", subnet, colors.brightCyan);
+          kv("SGs", sgs, colors.brightCyan);
           const ec2Path = `ec2/v2/home#InstanceDetails:instanceId=${iid}`;
-          kv("Console", awsConsoleUrl("ec2", ctx.region, ec2Path));
+          kv("Console", awsConsoleUrl("ec2", ctx.region, ec2Path), colors.brightCyan);
+          console.log(colors.gray(""));
+        } else if (info.ec2InstanceId) {
+          section("Host (EC2)");
+          kv("InstanceId", info.ec2InstanceId, colors.brightCyan);
+          const ec2Path = `ec2/v2/home#InstanceDetails:instanceId=${info.ec2InstanceId}`;
+          kv("Console", awsConsoleUrl("ec2", ctx.region, ec2Path), colors.brightCyan);
           console.log(colors.gray(""));
         }
 
@@ -88,7 +108,6 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
             opts.logGroup
           )}/log-events/${encodeURIComponent(info.logStreamName)}`;
           kv("Console", awsConsoleUrl("logs", ctx.region, logsPath), colors.brightCyan);
-          // Empty Line below Logs
           console.log(colors.gray(""));
 
           const lines = info.lastLogLines ?? [];
