@@ -15,6 +15,8 @@ import {
   EC2Client,
   DescribeInstancesCommand,
   DescribeNetworkInterfacesCommand,
+  DescribeVpcsCommand,
+  DescribeSubnetsCommand,
 } from "@aws-sdk/client-ec2";
 import {
   CloudWatchLogsClient,
@@ -35,6 +37,8 @@ export type JobChain = {
   ecsClusterArn?: string;
   taskArn?: string;
   containerInstanceArn?: string;
+  computeEnvironmentArn?: string;
+  computeEnvironment?: any;
   logStreamName?: string;
   image?: string;
   command?: string[];
@@ -43,6 +47,16 @@ export type JobChain = {
   ec2InstanceId?: string;
   ec2Instance?: any;
   lastLogLines?: string[];
+  vpc?: {
+    networkAclId?: string;
+    vpcId?: string;
+    name?: string;
+    cidrBlock?: string;
+    ipv6CidrBlock?: string;
+    state?: string;
+    dhcpOptionsId?: string;
+    tags?: Array<{ Key?: string; Value?: string }>;
+  };
 };
 
 const last = <T>(arr?: T[]) => (arr && arr.length ? arr[arr.length - 1] : undefined);
@@ -458,6 +472,111 @@ export async function resolveJobChain(
     }
   }
 
+  // Resolve the Compute Environment actually used (if possible)
+  let computeEnvironmentArn: string | undefined = (job as any)?.computeEnvironment;
+  let computeEnvironment: any | undefined;
+  try {
+    if (computeEnvironmentArn) {
+      const ce = await d.batch.send(
+        new DescribeComputeEnvironmentsCommand({ computeEnvironments: [computeEnvironmentArn] })
+      );
+      computeEnvironment = ce.computeEnvironments?.[0];
+      computeEnvironmentArn = computeEnvironment?.computeEnvironmentArn || computeEnvironmentArn;
+    } else if (job.jobQueue) {
+      // Consider all CEs attached to the queue and pick the one matching the ECS cluster (if known)
+      const jq = await d.batch.send(new DescribeJobQueuesCommand({ jobQueues: [job.jobQueue] }));
+      const ceArns = (jq.jobQueues?.[0]?.computeEnvironmentOrder || [])
+        .map((o: any) => o?.computeEnvironment)
+        .filter(Boolean);
+      if (ceArns.length) {
+        const ceRes = await d.batch.send(
+          new DescribeComputeEnvironmentsCommand({ computeEnvironments: ceArns })
+        );
+        const ces = ceRes.computeEnvironments || [];
+        // Prefer CE whose ecsClusterArn matches the resolved ecsClusterArn
+        const match = ecsClusterArn
+          ? ces.find((c: any) => c?.ecsClusterArn === ecsClusterArn)
+          : undefined;
+        const chosen = match || ces[0];
+        if (chosen) {
+          computeEnvironment = chosen;
+          computeEnvironmentArn = chosen.computeEnvironmentArn || chosen.computeEnvironmentName;
+        }
+      }
+    }
+  } catch (e) {
+    dbe("Resolve ComputeEnvironment", e);
+  }
+
+  // Resolve VPC details via instance → ENI → CE subnet
+  let vpc: JobChain["vpc"] | undefined;
+  try {
+    let vpcId: string | undefined = ec2Instance?.VpcId;
+    let subnetId: string | undefined = ec2Instance?.SubnetId;
+
+    // If no instance-derived VPC, try ENI from container
+    if (!vpcId && (container?.networkInterfaces?.length ?? 0) > 0) {
+      const eniId = (container.networkInterfaces?.[0] as any)?.networkInterfaceId as
+        | string
+        | undefined;
+      if (eniId) {
+        try {
+          const eni = await d.ec2.send(
+            new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] })
+          );
+          const ni = eni.NetworkInterfaces?.[0];
+          vpcId = ni?.VpcId || vpcId;
+          subnetId = ni?.SubnetId || subnetId;
+        } catch (e) {
+          dbe("DescribeNetworkInterfaces(for VPC)", e);
+        }
+      }
+    }
+
+    // If still no VPC, try CE subnet
+    if (!vpcId && !subnetId) {
+      const ceSubnets: string[] | undefined = (computeEnvironment as any)?.computeResources?.subnets;
+      if (Array.isArray(ceSubnets) && ceSubnets.length > 0) subnetId = ceSubnets[0];
+    }
+
+    // Derive VPC from subnet if needed
+    if (!vpcId && subnetId) {
+      try {
+        const sub = await d.ec2.send(new DescribeSubnetsCommand({ SubnetIds: [subnetId] }));
+        const s = sub.Subnets?.[0];
+        vpcId = s?.VpcId || vpcId;
+      } catch (e) {
+        dbe("DescribeSubnets", e);
+      }
+    }
+
+    if (vpcId) {
+      try {
+        const vpcs = await d.ec2.send(new DescribeVpcsCommand({ VpcIds: [vpcId] }));
+        const v = vpcs.Vpcs?.[0];
+        if (v) {
+          const name = (v.Tags || []).find((t) => t.Key === "Name")?.Value;
+          const ipv6 = (v.Ipv6CidrBlockAssociationSet || []).find(
+            (a) => (a.Ipv6CidrBlock || "").length > 0
+          )?.Ipv6CidrBlock;
+          vpc = {
+            vpcId: v.VpcId,
+            name,
+            cidrBlock: v.CidrBlock,
+            ipv6CidrBlock: ipv6,
+            state: v.State,
+            dhcpOptionsId: v.DhcpOptionsId,
+            tags: v.Tags as Array<{ Key?: string; Value?: string }> | undefined,
+          };
+        }
+      } catch (e) {
+        dbe("DescribeVpcs", e);
+      }
+    }
+  } catch (e) {
+    dbe("Resolve VPC", e);
+  }
+
   // Logs
   let lastLogLines: string[] | undefined;
   if (logStreamName) {
@@ -485,6 +604,8 @@ export async function resolveJobChain(
     ecsClusterArn,
     taskArn,
     containerInstanceArn,
+    computeEnvironmentArn,
+    computeEnvironment,
     logStreamName,
     image,
     command,
@@ -493,5 +614,6 @@ export async function resolveJobChain(
     ec2InstanceId,
     ec2Instance,
     lastLogLines,
+    vpc,
   };
 }

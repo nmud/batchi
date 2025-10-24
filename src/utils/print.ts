@@ -9,8 +9,8 @@ export function kv(
   label: string,
   value?: string | number | null,
   style?: (s: string) => string,
-  width = 12,
-  sep = " "
+  width = 28,
+  sep = "  "
 ) {
   if (value === undefined || value === null || value === "") return;
   const padded = label.padEnd(width, " ");
