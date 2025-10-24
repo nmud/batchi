@@ -17,6 +17,7 @@ import {
   DescribeNetworkInterfacesCommand,
   DescribeVpcsCommand,
   DescribeSubnetsCommand,
+  DescribeRouteTablesCommand,
 } from "@aws-sdk/client-ec2";
 import {
   CloudWatchLogsClient,
@@ -56,6 +57,21 @@ export type JobChain = {
     state?: string;
     dhcpOptionsId?: string;
     tags?: Array<{ Key?: string; Value?: string }>;
+    internetGatewayIds?: string[];
+    natGatewayIds?: string[];
+    subnets?: Array<{
+      subnetId: string;
+      name?: string;
+      availabilityZone?: string;
+      cidrBlock?: string;
+      routeTableId?: string;
+      defaultIpv4Target?: string;
+      defaultIpv6Target?: string;
+      isPublic?: boolean;
+      hasNat?: boolean;
+      classification?: "public" | "private" | "isolated";
+      tags?: Array<{ Key?: string; Value?: string }>;
+    }>;
   };
 };
 
@@ -567,7 +583,99 @@ export async function resolveJobChain(
             state: v.State,
             dhcpOptionsId: v.DhcpOptionsId,
             tags: v.Tags as Array<{ Key?: string; Value?: string }> | undefined,
+            internetGatewayIds: [],
+            natGatewayIds: [],
+            subnets: [],
           };
+
+          // Build subnet set to analyze: prefer instance subnet, otherwise CE subnets
+          const subnetIds = new Set<string>();
+          if (subnetId) subnetIds.add(subnetId);
+          const ceSubnets: string[] | undefined = (computeEnvironment as any)?.computeResources?.subnets;
+          if (Array.isArray(ceSubnets)) for (const s of ceSubnets) if (s) subnetIds.add(s);
+
+          // Describe subnets to get metadata
+          const subnetList = Array.from(subnetIds);
+          if (subnetList.length) {
+            try {
+              const subs = await d.ec2.send(new DescribeSubnetsCommand({ SubnetIds: subnetList }));
+              const byId = new Map<string, any>();
+              for (const s of subs.Subnets || []) byId.set(s.SubnetId!, s);
+
+              // For each subnet, find route table and classify
+              for (const sid of subnetList) {
+                let routeTableId: string | undefined;
+                let defaultIpv4Target: string | undefined;
+                let defaultIpv6Target: string | undefined;
+                let isPublic = false;
+                let hasNat = false;
+
+                try {
+                  // First, route table associated directly with the subnet
+                  const rt1 = await d.ec2.send(
+                    new DescribeRouteTablesCommand({
+                      Filters: [
+                        { Name: "association.subnet-id", Values: [sid] },
+                        { Name: "vpc-id", Values: [vpcId!] },
+                      ],
+                    })
+                  );
+                  let rt = rt1.RouteTables?.[0];
+                  if (!rt) {
+                    // Fallback to main route table for the VPC
+                    const rt2 = await d.ec2.send(
+                      new DescribeRouteTablesCommand({
+                        Filters: [
+                          { Name: "association.main", Values: ["true"] },
+                          { Name: "vpc-id", Values: [vpcId!] },
+                        ],
+                      })
+                    );
+                    rt = rt2.RouteTables?.[0];
+                  }
+                  if (rt) {
+                    routeTableId = rt.RouteTableId;
+                    for (const r of rt.Routes || []) {
+                      const isDefault4 = r.DestinationCidrBlock === "0.0.0.0/0";
+                      const isDefault6 = r.DestinationIpv6CidrBlock === "::/0";
+                      const gw = r.GatewayId || "";
+                      const natId = (r as any).NatGatewayId as string | undefined;
+                      if (isDefault4) defaultIpv4Target = gw || natId || r.InstanceId || r.TransitGatewayId;
+                      if (isDefault6) defaultIpv6Target = gw || r.EgressOnlyInternetGatewayId || r.TransitGatewayId;
+                      if (gw?.startsWith("igw-")) isPublic = true;
+                      if (natId?.startsWith("nat-")) hasNat = true;
+                    }
+                  }
+                } catch (e) {
+                  dbe("DescribeRouteTables", e);
+                }
+
+                const s = byId.get(sid);
+                const sName = (s?.Tags || []).find((t: any) => t.Key === "Name")?.Value as string | undefined;
+                const classification: "public" | "private" | "isolated" = isPublic
+                  ? "public"
+                  : hasNat
+                  ? "private"
+                  : "isolated";
+
+                vpc.subnets?.push({
+                  subnetId: sid,
+                  name: sName,
+                  availabilityZone: s?.AvailabilityZone,
+                  cidrBlock: s?.CidrBlock,
+                  routeTableId,
+                  defaultIpv4Target,
+                  defaultIpv6Target,
+                  isPublic,
+                  hasNat,
+                  classification,
+                  tags: s?.Tags as Array<{ Key?: string; Value?: string }> | undefined,
+                });
+              }
+            } catch (e) {
+              dbe("DescribeSubnets(route analysis)", e);
+            }
+          }
         }
       } catch (e) {
         dbe("DescribeVpcs", e);

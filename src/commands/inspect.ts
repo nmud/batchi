@@ -141,7 +141,6 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
 
         // VPC details (derived from instance/subnet/CE)
         if (info.vpc) {
-          console.log(info.vpc);
           section(colors.yellow(colors.bold("VPC")));
           kv("Name", info.vpc.name, colors.brightCyan);
           kv("Id", info.vpc.vpcId, colors.brightCyan);
@@ -184,6 +183,23 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
           kv("InstanceId", info.ec2InstanceId, colors.brightCyan);
           const ec2Path = `ec2/v2/home#InstanceDetails:instanceId=${info.ec2InstanceId}`;
           kv("Console", awsConsoleUrl("ec2", ctx.region, ec2Path), colors.brightCyan);
+          console.log(colors.gray(""));
+        }
+
+        if (info.vpc) {
+          section("Network");
+          if (info.vpc.vpcId) kv("VPC", `${info.vpc.name ? info.vpc.name + " " : ""}(${info.vpc.vpcId})`, colors.brightCyan);
+          if (info.vpc.cidrBlock) kv("CIDR", info.vpc.cidrBlock, colors.brightCyan);
+          if (info.vpc.ipv6CidrBlock) kv("IPv6 CIDR", info.vpc.ipv6CidrBlock, colors.brightCyan);
+          if (info.vpc.subnets?.length) {
+            const subs = (info.vpc.subnets || []).slice(0, 5);
+            for (const s of subs) {
+              const label = `${s.name ? s.name + " " : ""}(${s.subnetId})`;
+              const cls = s.classification || (s.isPublic ? "public" : s.hasNat ? "private" : "isolated");
+              kv("Subnet", `${label}  ${cls}  az=${s.availabilityZone || "-"}  rt=${s.routeTableId || "-"}`, colors.brightCyan);
+            }
+            if ((info.vpc.subnets || []).length > 5) console.log(colors.gray("  ..."));
+          }
           console.log(colors.gray(""));
         }
 
