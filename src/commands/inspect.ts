@@ -11,8 +11,15 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
     .option("-r, --region <region>", "AWS region")
     .option("--log-group <name>", "CloudWatch Logs group name", "/aws/batch/job")
     .option("--log-lines <n>", "Number of last log lines to include", "50")
-    .option("--compute", "Show compute environment details")
-    .option("--vpc", "Show expanded VPC details")
+    .option("-j, --job", "Show Job details")
+    .option("-c, --container", "Show Container details")
+    .option("-i, --image", "Show Image details")
+    .option("-e, --environment", "Show Environment details")
+    .option("-l, --logs", "Show Logs")
+    .option("-n, --network", "Show Network details")
+    .option("-v, --vpc", "Show VPC details")
+    .option("--ecs", "Show ECS Task details")
+    .option("--ec2", "Show EC2 Instance details")
     .description("Show job summary: status, links, image, env, host, last logs")
     .showHelpAfterError()
     .action(async (jobId, opts) => {
@@ -108,32 +115,29 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
           kv("Job Timeout (Min.)", info.computeEnvironment.updatePolicy.jobExecutionTimeoutMinutes, colors.brightCyan);
           // Service role
           kv("Service Role", info.computeEnvironment.serviceRole, colors.brightCyan);
-          if (opts.compute) {
-            if (info.computeEnvironment?.computeResources) {
-              section(colors.magenta(colors.bold("Compute Details")));
-              kv("Type", info.computeEnvironment.computeResources.type, colors.brightCyan);
-              kv("Allocation Strategy", info.computeEnvironment.computeResources.allocationStrategy, colors.brightCyan);
-              kv("Min vCPUs", info.computeEnvironment.computeResources.minvCpus, colors.brightCyan);
-              kv("Max vCPUs", info.computeEnvironment.computeResources.maxvCpus, colors.brightCyan);
-              kv("Instance Types", info.computeEnvironment.computeResources.instanceTypes.join(", "), colors.brightCyan);
-              if (info.computeEnvironment.computeResources.subnets) {
-                kv("Subnets", info.computeEnvironment.computeResources.subnets.join(", "), colors.brightCyan);
-                // Get more info about networks-- private/public, etc
-              }
-              if (info.computeEnvironment.computeResources.securityGroupIds) {
-                kv("Security Group IDs", info.computeEnvironment.computeResources.securityGroupIds.join(", "), colors.brightCyan);
-              }
-              if (info.computeEnvironment.computeResources.launchTemplate) {
-                kv("Launch Template", info.computeEnvironment.computeResources.launchTemplate.launchTemplateName, colors.brightCyan);
-                kv("Launch Template Version", info.computeEnvironment.computeResources.launchTemplate.version, colors.brightCyan);
-              }
-              if (info.computeEnvironment.computeResources.ec2Configuration) {
-                kv("Image Type", info.computeEnvironment.computeResources.ec2Configuration.imageType, colors.brightCyan);
-              }
+          if (info.computeEnvironment?.computeResources) {
+            section(colors.magenta(colors.bold("Compute Details")));
+            kv("Type", info.computeEnvironment.computeResources.type, colors.brightCyan);
+            kv("Allocation Strategy", info.computeEnvironment.computeResources.allocationStrategy, colors.brightCyan);
+            kv("Min vCPUs", info.computeEnvironment.computeResources.minvCpus, colors.brightCyan);
+            kv("Max vCPUs", info.computeEnvironment.computeResources.maxvCpus, colors.brightCyan);
+            kv("Instance Types", info.computeEnvironment.computeResources.instanceTypes.join(", "), colors.brightCyan);
+            if (info.computeEnvironment.computeResources.subnets) {
+              kv("Subnets", info.computeEnvironment.computeResources.subnets.join(", "), colors.brightCyan);
+              // Get more info about networks-- private/public, etc
             }
-          } else {
-            console.log(colors.gray("Run with --compute to see compute environment details."));
+            if (info.computeEnvironment.computeResources.securityGroupIds) {
+              kv("Security Group IDs", info.computeEnvironment.computeResources.securityGroupIds.join(", "), colors.brightCyan);
+            }
+            if (info.computeEnvironment.computeResources.launchTemplate) {
+              kv("Launch Template", info.computeEnvironment.computeResources.launchTemplate.launchTemplateName, colors.brightCyan);
+              kv("Launch Template Version", info.computeEnvironment.computeResources.launchTemplate.version, colors.brightCyan);
+            }
+            if (info.computeEnvironment.computeResources.ec2Configuration) {
+              kv("Image Type", info.computeEnvironment.computeResources.ec2Configuration.imageType, colors.brightCyan);
+            }
           }
+          
           
           console.log(colors.gray(""));
         }
@@ -146,16 +150,10 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
           kv("Id", info.vpc.vpcId, colors.brightCyan);
           kv("IPv4 CIDR", info.vpc.cidrBlock, colors.brightCyan);
           kv("IPv6 CIDR", info.vpc.ipv6CidrBlock, colors.brightCyan);
-          if (opts.vpc) {
-            // Expanded VPC details when requested
-            kv("State", info.vpc.state, colors.brightCyan);
-            kv("DHCP Options", info.vpc.dhcpOptionsId, colors.brightCyan);
-            if (info.vpc.tags && info.vpc.tags.length) {
-              kv("Tags", info.vpc.tags.map((t: any) => `${t.Key}=${t.Value}`).join(", "), colors.brightCyan);
-            }
-            // network ACL
-          } else {
-            console.log(colors.gray("Run with --vpc to see more VPC details."));
+          kv("State", info.vpc.state, colors.brightCyan);
+          kv("DHCP Options", info.vpc.dhcpOptionsId, colors.brightCyan);
+          if (info.vpc.tags && info.vpc.tags.length) {
+            kv("Tags", info.vpc.tags.map((t: any) => `${t.Key}=${t.Value}`).join(", "), colors.brightCyan);
           }
           console.log(colors.gray(""));
           console.log(colors.gray("───────────────────────────────────────────────────────────────────────"));
@@ -187,7 +185,7 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
         }
 
         if (info.vpc) {
-          section("Network");
+          section(colors.yellow(colors.bold("Network")));
           if (info.vpc.vpcId) kv("VPC", `${info.vpc.name ? info.vpc.name + " " : ""}(${info.vpc.vpcId})`, colors.brightCyan);
           if (info.vpc.cidrBlock) kv("CIDR", info.vpc.cidrBlock, colors.brightCyan);
           if (info.vpc.ipv6CidrBlock) kv("IPv6 CIDR", info.vpc.ipv6CidrBlock, colors.brightCyan);
@@ -201,6 +199,7 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
             if ((info.vpc.subnets || []).length > 5) console.log(colors.gray("  ..."));
           }
           console.log(colors.gray(""));
+          console.log(colors.gray("───────────────────────────────────────────────────────────────────────"));
         }
 
         if (info.logStreamName) {
