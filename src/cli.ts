@@ -10,6 +10,7 @@ import { ECSClient } from "@aws-sdk/client-ecs";
 import { EC2Client } from "@aws-sdk/client-ec2";
 import { CloudWatchLogsClient } from "@aws-sdk/client-cloudwatch-logs";
 import { S3Client } from "@aws-sdk/client-s3";
+import { ECRClient } from "@aws-sdk/client-ecr";
 import { registerInspect } from "./commands/inspect";
 
 const program = new Command();
@@ -26,6 +27,7 @@ export type AwsCtx = {
   ec2: EC2Client;
   logs: CloudWatchLogsClient;
   s3: S3Client;
+  ecr: ECRClient;
 };
 
 export function makeAwsCtx(region?: string): AwsCtx {
@@ -40,6 +42,7 @@ export function makeAwsCtx(region?: string): AwsCtx {
     ec2: new EC2Client({ region: resolvedRegion, credentials: credsProvider }),
     logs: new CloudWatchLogsClient({ region: resolvedRegion, credentials: credsProvider }),
     s3: new S3Client({ region: resolvedRegion, credentials: credsProvider }),
+    ecr: new ECRClient({ region: resolvedRegion, credentials: credsProvider }),
   };
 }
 

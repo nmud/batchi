@@ -14,6 +14,7 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
     .option("-j, --job", "Show Job details")
     .option("-c, --container", "Show Container details")
     .option("-i, --image", "Show Image details")
+    .option("--image-verbose", "Show extended ECR image metadata if available")
     .option("-e, --environment", "Show Environment details")
     .option("-l, --logs", "Show Logs")
     .option("-n, --network", "Show Network details")
@@ -26,7 +27,7 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
       const ctx = makeAwsCtx(opts.region);
       try {
         const info = await resolveJobChain(
-          { region: ctx.region, batch: ctx.batch, ecs: ctx.ecs, ec2: ctx.ec2, logs: ctx.logs },
+          { region: ctx.region, batch: ctx.batch, ecs: ctx.ecs, ec2: ctx.ec2, logs: ctx.logs, ecr: ctx.ecr, credsProvider: ctx.credsProvider },
           jobId,
           { logGroup: opts.logGroup, logLines: Number(opts.logLines) }
         );
@@ -83,6 +84,49 @@ export function registerInspect(program: Command, makeAwsCtx: (region?: string) 
           section(colors.yellow(colors.bold("Image")));
           kv("Image", info.image || "-", colors.brightCyan);
           if (info.command?.length) kv("Cmd", info.command.join(" "), colors.brightCyan);
+
+          // ECR details
+          if (info.imageDetail) {
+            kv("Digest", info.imageDetail.imageDigest || "-", colors.brightCyan);
+            if (info.imageDetail.imageTags && info.imageDetail.imageTags.length)
+              kv("Tags", info.imageDetail.imageTags.join(", "), colors.brightCyan);
+            if (info.imageDetail.imagePushedAt)
+              kv("Pushed At", new Date(info.imageDetail.imagePushedAt).toISOString(), colors.brightCyan);
+            if (info.imageDetail.imageSizeInBytes != null)
+              kv("Size (MB)", Math.round((info.imageDetail.imageSizeInBytes / (1024 * 1024)) * 10) / 10, colors.brightCyan);
+
+            // Optional verbose scan details
+            if (opts.imageVerbose && info.imageDetail.imageScanStatus) {
+              kv("Scan Status", info.imageDetail.imageScanStatus?.status || "-", colors.brightCyan);
+              const sum: any = info.imageDetail.imageScanFindingsSummary;
+              if (sum) {
+                const sev = sum.findingSeverityCounts || {};
+                const sevStr = Object.keys(sev)
+                  .sort()
+                  .map((k) => `${k}=${sev[k]}`)
+                  .join(" ");
+                if (sevStr) kv("Scan Findings", sevStr, colors.brightCyan);
+              }
+            }
+
+            // Console link to ECR repo when resolvable
+            if (info.imageDetail.repositoryName) {
+              const repo = info.imageDetail.repositoryName;
+              const tag = info.imageDetail.imageTags?.[0];
+              const digest = info.imageDetail.imageDigest;
+              // ECR console doesn't live at ecr.console, it is in AWS console path
+              const ecrPath = tag
+                ? `ecr/repositories/private/${encodeURIComponent(repo)}/_/image/${encodeURIComponent(tag)}/details`
+                : digest
+                ? `ecr/repositories/private/${encodeURIComponent(repo)}/_/image/${encodeURIComponent(digest.replace(":", "/"))}/details`
+                : `ecr/repositories/private/${encodeURIComponent(repo)}`;
+              // Reuse logs domain helper to construct base; service is still "console.aws.amazon.com" path differs
+              kv("ECR Console", `https://console.aws.amazon.com/${ecrPath}?region=${ctx.region}` , colors.brightCyan);
+            }
+          } else if (info.image && /\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com\//.test(info.image)) {
+            // If it's an ECR image but we couldn't resolve metadata, surface a helpful hint
+            kv("ECR Metadata", "Unavailable (permission or image not found)", colors.brightCyan);
+          }
           console.log(colors.gray(""));
         }
 
