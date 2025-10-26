@@ -23,6 +23,10 @@ import {
   CloudWatchLogsClient,
   GetLogEventsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
+import {
+  ECRClient,
+  DescribeImagesCommand,
+} from "@aws-sdk/client-ecr";
 
 export type ResolveDeps = {
   region: string;
@@ -30,6 +34,8 @@ export type ResolveDeps = {
   ecs: ECSClient;
   ec2: EC2Client;
   logs: CloudWatchLogsClient;
+  ecr: ECRClient;
+  credsProvider?: any;
 };
 
 export type JobChain = {
@@ -44,6 +50,16 @@ export type JobChain = {
   image?: string;
   command?: string[];
   environment: Record<string, string | undefined>;
+  imageDetail?: {
+    registryId?: string;
+    repositoryName?: string;
+    imageDigest?: string;
+    imageTags?: string[];
+    imagePushedAt?: Date;
+    imageSizeInBytes?: number;
+    imageScanStatus?: any;
+    imageScanFindingsSummary?: any;
+  };
   ecsTask?: any;
   ec2InstanceId?: string;
   ec2Instance?: any;
@@ -706,6 +722,68 @@ export async function resolveJobChain(
     }
   }
 
+  // Resolve image metadata from ECR when possible
+  let imageDetail: JobChain["imageDetail"] | undefined;
+  try {
+    if (image && /\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com\//.test(image)) {
+      // Parse: {account}.dkr.ecr.{region}.amazonaws.com/{repo}[:tag|@digest]
+      const m = image.match(/^(\d{12})\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com\/(.+)$/);
+      if (m) {
+        const registryId = m[1];
+        const imageRegion = m[2];
+        const remainder = m[3];
+        // Split repo and tag/digest
+        let repositoryName = remainder;
+        let imageTag: string | undefined;
+        let imageDigest: string | undefined;
+        const atIdx = remainder.indexOf("@");
+        const colonIdx = remainder.lastIndexOf(":");
+        if (atIdx > -1) {
+          repositoryName = remainder.substring(0, atIdx);
+          imageDigest = remainder.substring(atIdx + 1);
+        } else if (colonIdx > -1 && colonIdx > remainder.indexOf("/")) {
+          repositoryName = remainder.substring(0, colonIdx);
+          imageTag = remainder.substring(colonIdx + 1);
+        }
+
+        // Use ECR client for the image's region (may differ from Batch job region)
+        if (repositoryName) {
+          try {
+            const imageIds = imageDigest
+              ? [{ imageDigest }]
+              : imageTag
+              ? [{ imageTag }]
+              : undefined;
+            const input: any = imageIds
+              ? { registryId, repositoryName, imageIds }
+              : { registryId, repositoryName, maxResults: 1 };
+            const ecrClient = imageRegion === d.region
+              ? d.ecr
+              : new ECRClient({ region: imageRegion, credentials: d.credsProvider });
+            const di = await ecrClient.send(new DescribeImagesCommand(input));
+            const detail = di.imageDetails?.[0];
+            if (detail) {
+              imageDetail = {
+                registryId: detail.registryId,
+                repositoryName: detail.repositoryName,
+                imageDigest: detail.imageDigest,
+                imageTags: detail.imageTags,
+                imagePushedAt: detail.imagePushedAt,
+                imageSizeInBytes: detail.imageSizeInBytes,
+                imageScanStatus: detail.imageScanStatus,
+                imageScanFindingsSummary: (detail as any).imageScanFindingsSummary,
+              };
+            }
+          } catch (e) {
+            dbe("DescribeImages", e);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    dbe("image metadata", e);
+  }
+
   return {
     job,
     container,
@@ -718,6 +796,7 @@ export async function resolveJobChain(
     image,
     command,
     environment,
+    imageDetail,
     ecsTask,
     ec2InstanceId,
     ec2Instance,
