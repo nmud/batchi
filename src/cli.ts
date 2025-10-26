@@ -13,6 +13,7 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { ECRClient } from "@aws-sdk/client-ecr";
 import { registerInspect } from "./commands/inspect";
 import { registerLogs } from "./commands/logs";
+import { registerArtifacts } from "./commands/artifacts";
 
 const program = new Command();
 program
@@ -50,6 +51,7 @@ export function makeAwsCtx(region?: string): AwsCtx {
 // Register commands
 registerInspect(program, makeAwsCtx);
 registerLogs(program, makeAwsCtx);
+registerArtifacts(program, makeAwsCtx);
 
 // Parse
 program.parseAsync(process.argv);
