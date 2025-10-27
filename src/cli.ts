@@ -14,6 +14,7 @@ import { ECRClient } from "@aws-sdk/client-ecr";
 import { registerInspect } from "./commands/inspect";
 import { registerLogs } from "./commands/logs";
 import { registerArtifacts } from "./commands/artifacts";
+import { registerDoctor } from "./commands/doctor";
 const {version} = require('../package.json');
 
 const program = new Command();
@@ -54,6 +55,7 @@ export function makeAwsCtx(region?: string): AwsCtx {
 registerInspect(program, makeAwsCtx);
 registerLogs(program, makeAwsCtx);
 registerArtifacts(program, makeAwsCtx);
+registerDoctor(program, makeAwsCtx);
 
 // Parse
 program.parseAsync(process.argv);
