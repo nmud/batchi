@@ -1,14 +1,17 @@
 {
     "name": "@nmud/batchi",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "description": "Batch Inspector: single-command AWS Batch job debugging CLI",
     "bin": {
         "batchi": "dist/cli.js"
     },
     "type": "commonjs",
     "main": "dist/cli.js",
-    "readmeFilename":"README.md",
-    "files": ["dist", "LICENSE"],
+    "readmeFilename": "README.md",
+    "files": [
+        "dist",
+        "LICENSE"
+    ],
     "scripts": {
         "build": "tsc -p tsconfig.json",
         "dev": "ts-node src/cli.ts",
