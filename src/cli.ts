@@ -14,12 +14,14 @@ import { ECRClient } from "@aws-sdk/client-ecr";
 import { registerInspect } from "./commands/inspect";
 import { registerLogs } from "./commands/logs";
 import { registerArtifacts } from "./commands/artifacts";
+const {version} = require('../package.json');
 
 const program = new Command();
 program
   .name("batchi")
   .description("Batch Inspector CLI")
-  .version("0.1.0", "-v, -V, --version");
+  // Get actual version from package.json
+  .version(version, "-v, -V, --version");
 
 export type AwsCtx = {
   region: string;
