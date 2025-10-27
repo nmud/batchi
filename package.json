@@ -7,11 +7,8 @@
     },
     "type": "commonjs",
     "main": "dist/cli.js",
-    "files": [
-        "dist",
-        "LICENSE",
-        "README.md"
-    ],
+    "readmeFilename":"README.md",
+    "files": ["dist", "LICENSE"],
     "scripts": {
         "build": "tsc -p tsconfig.json",
         "dev": "ts-node src/cli.ts",
